@@ -32,7 +32,7 @@
 <body>
   <div class="header">
     <h1>Indoor Air Quality Dashboard</h1>
-    <p>ThingSpeak Public Channel · 3532715</p>
+    <p>Supabase Sensor Database</p>
     <div id="connectionStatus" class="connection-status checking" role="status" aria-live="polite">
       <span class="status-dot"></span>
       <span id="connectionMessage">Memeriksa koneksi ESP8266...</span>
@@ -83,6 +83,8 @@
       options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
 
+    const SUPABASE_URL = "https://hocbiajsvjkupvxgkkvc.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_dg-AjSEi9bVJJO02yagGMA_WaJzpJ9Z";
     const OFFLINE_THRESHOLD_MS = 60000;
 
     function setConnectionStatus(state, message, lastUpdate = "") {
@@ -106,22 +108,32 @@
     }
 
     async function updateData() {
+      if (SUPABASE_URL.includes("YOUR_PROJECT_REF") || SUPABASE_ANON_KEY.startsWith("GANTI_")) {
+        clearSensorData();
+        setConnectionStatus('checking', 'Supabase belum dikonfigurasi');
+        return;
+      }
+
       try {
         const response = await fetch(
-          'https://api.thingspeak.com/channels/3532715/feeds.json?results=10',
-          { cache: 'no-store' }
+          `${SUPABASE_URL}/rest/v1/sensor_readings?select=created_at,temperature,humidity,pm25,gas,fan&order=created_at.desc&limit=10`,
+          {
+            cache: 'no-store',
+            headers: {
+              apikey: SUPABASE_ANON_KEY
+            }
+          }
         );
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        const result = await response.json();
-        const feeds = result.feeds || [];
-        if (feeds.length === 0) {
+        const readings = await response.json();
+        if (readings.length === 0) {
           clearSensorData();
           setConnectionStatus('offline', 'Menunggu data pertama dari ESP8266');
           return;
         }
 
-        const latest = feeds[feeds.length - 1];
+        const latest = readings[0];
         const lastSeen = Date.parse(latest.created_at);
         const ageMs = Date.now() - lastSeen;
         if (!Number.isFinite(lastSeen) || ageMs > OFFLINE_THRESHOLD_MS) {
@@ -129,18 +141,18 @@
           setConnectionStatus(
             'offline',
             'ESP8266 offline atau tidak mengirim data',
-            `Data terakhir: ${new Date(lastSeen).toLocaleString()}`
+            Number.isFinite(lastSeen) ? `Data terakhir: ${new Date(lastSeen).toLocaleString()}` : ''
           );
           return;
         }
 
         setConnectionStatus('online', 'ESP8266 terhubung ke internet', 'Data sensor terbaru diterima');
-        document.getElementById('temp').innerText = Number(latest.field1).toFixed(1);
-        document.getElementById('hum').innerText = Math.round(Number(latest.field2));
-        document.getElementById('pm25').innerText = Number(latest.field3).toFixed(1);
+        document.getElementById('temp').innerText = Number(latest.temperature).toFixed(1);
+        document.getElementById('hum').innerText = Math.round(Number(latest.humidity));
+        document.getElementById('pm25').innerText = Number(latest.pm25).toFixed(1);
 
         const gasElem = document.getElementById('gas');
-        if (Number(latest.field4) === 1) {
+        if (Number(latest.gas) === 1) {
           gasElem.innerText = "BAHAYA!";
           gasElem.className = "val danger";
         } else {
@@ -149,7 +161,7 @@
         }
 
         const fanElem = document.getElementById('fan');
-        if (Number(latest.field5) === 1) {
+        if (Number(latest.fan) === 1) {
           fanElem.innerText = "NYALA";
           fanElem.className = "val active";
         } else {
@@ -157,18 +169,19 @@
           fanElem.className = "val safe";
         }
 
-        chart.data.labels = feeds.map(feed => new Date(feed.created_at).toLocaleTimeString());
-        chart.data.datasets[0].data = feeds.map(feed => Number(feed.field3));
-        chart.data.datasets[1].data = feeds.map(feed => Number(feed.field1));
+        const chronologicalReadings = readings.slice().reverse();
+        chart.data.labels = chronologicalReadings.map(reading => new Date(reading.created_at).toLocaleTimeString());
+        chart.data.datasets[0].data = chronologicalReadings.map(reading => Number(reading.pm25));
+        chart.data.datasets[1].data = chronologicalReadings.map(reading => Number(reading.temperature));
         chart.update();
       } catch (err) {
-        console.error("Error fetching ThingSpeak data:", err);
+        console.error("Error fetching Supabase data:", err);
         clearSensorData();
-        setConnectionStatus('offline', 'Tidak dapat terhubung ke ThingSpeak');
+        setConnectionStatus('offline', 'Gagal membaca data dari Supabase');
       }
     }
 
-    setInterval(updateData, 20000);
+    setInterval(updateData, 5000);
     updateData();
   </script>
 </body>
