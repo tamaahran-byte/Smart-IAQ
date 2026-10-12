@@ -29,7 +29,7 @@ jobs:
       - name: Prepare dashboard
         run: |
           mkdir -p site
-          cp data/index.html site/index.html
+         cp index.html site/index.html
       - name: Upload dashboard
         uses: actions/upload-pages-artifact@v3
         with:
